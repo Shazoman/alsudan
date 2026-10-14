@@ -1,0 +1,35 @@
+name: Build ALSUDAN APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get source code
+        uses: actions/checkout@v4
+
+      - name: Install Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.35.7'
+          channel: stable
+          cache: true
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build release APK
+        run: flutter build apk --release --target-platform android-arm64
+
+      - name: Save APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ALSUDAN-Build-36-APK
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
