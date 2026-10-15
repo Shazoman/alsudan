@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 import 'dart:ui' as ui;
+
 import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
@@ -12,22 +13,44 @@ import 'package:flutter/services.dart';
 import 'package:flutter_native_contact_picker/flutter_native_contact_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
-import 'package:local_auth/error_codes.dart' as auth_error;
 import 'package:local_auth_android/local_auth_android.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import 'package:share_plus/share_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:url_launcher/url_launcher.dart';
+
 // ===========================================================================
 // APP CONSTANTS + THEME
 // ===========================================================================
 const String kAppVersion = '1.0.0';
 const String kTagline = 'Fast • Simple • Reliable';
-const String kDeveloperCredit = 'Developed by ALSUDAN';
-const String kLogoAsset = 'assets/images/shazalogo.jpg';
+const String kDeveloperCredit = 'Developed by SUDATELL';
+
+const String kLogoAsset = 'assets/shazalogo.jpg';
 const String kArtAsset = 'assets/shaza.jpg';
+
+// Advertisement banners and service header pictures. These are original,
+// non-branded illustrations. Every place that shows one has a fallback, so a
+// missing file can never crash the app.
+const String kAdAirtimeAsset = 'assets/ads/ad_airtime_data.jpg';
+const String kAdUtilityAsset = 'assets/ads/ad_utility_bills.jpg';
+const String kAdWalletAsset = 'assets/ads/ad_wallet_security.jpg';
+const String kAdDigitalAsset = 'assets/ads/ad_digital_services.jpg';
+
+const Map<String, String> kServiceHeaderAssets = {
+  'Education': 'assets/services/service_education.jpg',
+  'Electricity': 'assets/services/service_electricity_bill.jpg',
+  'Cable TV': 'assets/services/service_cable_tv.jpg',
+  'Inverter': 'assets/services/service_inverter_solar.jpg',
+};
+
+/// Where an OFFICIAL network logo goes (optional). Add the file and it is used
+/// automatically; until then the coloured mark is shown. Examples:
+/// assets/networks/network_mtn.png, network_airtel.png, network_glo.png,
+/// network_t2mobile.png, network_smile.png
+String networkLogoAsset(Network n) => 'assets/networks/network_${n.name}.png';
+
 const fuDark = Color(0xFF0F5B45); // deep green
 const fuGreen = Color(0xFF2E8B57); // emerald
 const fuAccent = Color(0xFF2FAE6C); // Add Money, highlights
@@ -37,11 +60,13 @@ const fuBorder = Color(0xFFDDE7D5);
 const fuText = Color(0xFF12372B);
 const fuMuted = Color(0xFF6B7F76);
 const fuBlue = Color(0xFF2B8CD6);
+
 // Funding account (REAL company bank details: confirm they are correct before
 // release. The account name is the registered account holder, so it is kept).
 const String kFundingBank = 'OPay';
 const String kFundingAccountNumber = '6104123853';
 const String kFundingAccountName = 'SUDAWA TECHNOLOGY NIG';
+
 BoxDecoration cardDeco([double r = 16]) => BoxDecoration(
       color: Colors.white,
       borderRadius: BorderRadius.circular(r),
@@ -55,19 +80,7 @@ BoxDecoration cardDeco([double r = 16]) => BoxDecoration(
       ],
     );
 
-String naira(num amount) {
-  final fixed = amount.toStringAsFixed(2).split('.');
-  final digits = fixed[0];
-  final out = StringBuffer();
-  for (var i = 0; i < digits.length; i++) {
-    if (i > 0 && (digits.length - i) % 3 == 0) out.write(',');
-    out.write(digits[i]);
-  }
-  final hasFraction = amount % 1 != 0;
-  return hasFraction
-      ? '₦${out.toString()}.${fixed[1]}'
-      : '₦${out.toString()}';
-}
+String naira(double v) => '₦${v.toStringAsFixed(2)}';
 
 String fmtDate(DateTime d) {
   String two(int n) => n.toString().padLeft(2, '0');
@@ -115,6 +128,7 @@ const Map<String, String> kHausa = {
   'ePIN': 'ePIN',
   'Contacts': 'Lambobin Waya',
   'Data Card': 'Katin Data',
+  'Inverter': 'Inverter',
   'Delivery': 'Isarwa',
   'Support': 'Taimako',
   'History': 'Tarihi',
@@ -212,15 +226,6 @@ const Map<String, String> kHausa = {
   'LOGOUT': 'FITA',
   'Do you want to logout from ALSUDAN?': 'Kana son fita daga ALSUDAN?',
 
-  // Electricity / Solar / NIN
-  'Electricity Companies': 'Kamfanonin Wutar Lantarki',
-  'Solar Payment': 'Biyan Solar',
-  'Solar / Pay-As-You-Go': 'Solar / Biya a Hankali',
-  'Customer ID / Device Number': 'Lambar Abokin Ciniki / Na\u2019ura',
-  'National ID (NIN) Check': 'Duba Katin Shaida (NIN)',
-  'Check NIN': 'Duba NIN',
-  'NIN (11 digits)': 'NIN (lambobi 11)',
-
   // Onboarding
   'Skip': 'Tsallake',
   'Next': 'Gaba',
@@ -244,8 +249,8 @@ const Map<String, String> kHausa = {
   'Wallet, transaction history, PIN and fingerprint security':
       'Wallet, tarihin mu’amala, PIN da tsaron fingerprint',
   'Digital Services and Offers': 'Ayyukan Dijital da Tayi',
-  'Bulk SMS, ePIN, Education and phone purchase requests. Offers show here when available.':
-      'Bulk SMS, ePIN, Ilimi da buƙatun sayen waya. Tayi za su bayyana nan idan akwai.',
+  'Bulk SMS, ePIN, Education and Inverter requests. Offers show here when available.':
+      'Bulk SMS, ePIN, Ilimi da buƙatun Inverter. Tayi za su bayyana nan idan akwai.',
 
   // Services pages
   'Select Network': 'Zaɓi Network',
@@ -286,10 +291,6 @@ const Map<String, String> kHausa = {
   'Transaction PIN updated.': 'An sabunta PIN na mu’amala.',
   'Fingerprint authentication failed or was cancelled.':
       'Fingerprint bai yi nasara ba ko an soke shi.',
-  'Fingerprint is temporarily locked. Try again shortly or use your password.':
-      'An toshe fingerprint na ɗan lokaci. Sake gwadawa nan da ɗan lokaci ko yi amfani da password.',
-  'Fingerprint is locked. Unlock your phone with its PIN, then try again.':
-      'An toshe fingerprint. Buɗe wayarka da PIN ɗinta, sannan ka sake gwadawa.',
 
   // Settings
   'Security': 'Tsaro',
@@ -911,18 +912,6 @@ String? passwordProblem(String? v) {
 // ===========================================================================
 enum BioStatus { ok, noHardware, notEnrolled, error }
 
-/// Detailed outcome of a fingerprint attempt, so the app can show the exact
-/// reason (cancelled, temporarily locked, not enrolled, and so on).
-enum BioResult {
-  success,
-  cancelled,
-  lockedOut,
-  permanentlyLockedOut,
-  notEnrolled,
-  notAvailable,
-  error,
-}
-
 class BiometricHelper {
   static final LocalAuthentication _auth = LocalAuthentication();
 
@@ -940,15 +929,13 @@ class BiometricHelper {
     }
   }
 
-  static Future<BioResult> authenticateDetailed({
+  /// Returns true ONLY when Android confirms the fingerprint.
+  static Future<bool> authenticate({
     String reason = 'Authenticate using your fingerprint',
   }) async {
     try {
-      final st = await status();
-      if (st == BioStatus.noHardware) return BioResult.notAvailable;
-      if (st == BioStatus.notEnrolled) return BioResult.notEnrolled;
-      if (st == BioStatus.error) return BioResult.error;
-      final ok = await _auth.authenticate(
+      if (await status() != BioStatus.ok) return false;
+      return await _auth.authenticate(
         localizedReason: reason,
         authMessages: const <AuthMessages>[
           AndroidAuthMessages(
@@ -960,47 +947,12 @@ class BiometricHelper {
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: true,
-          useErrorDialogs: true,
         ),
       );
-      return ok ? BioResult.success : BioResult.cancelled;
-    } on PlatformException catch (e) {
-      switch (e.code) {
-        case auth_error.lockedOut:
-          return BioResult.lockedOut;
-        case auth_error.permanentlyLockedOut:
-          return BioResult.permanentlyLockedOut;
-        case auth_error.notEnrolled:
-          return BioResult.notEnrolled;
-        case auth_error.notAvailable:
-          return BioResult.notAvailable;
-        default:
-          return BioResult.error;
-      }
+    } on PlatformException {
+      return false;
     } catch (_) {
-      return BioResult.error;
-    }
-  }
-
-  /// Returns true ONLY when Android confirms the fingerprint.
-  static Future<bool> authenticate({
-    String reason = 'Authenticate using your fingerprint',
-  }) async =>
-      (await authenticateDetailed(reason: reason)) == BioResult.success;
-
-  /// Message (a translation key) that matches a failed result.
-  static String messageFor(BioResult r) {
-    switch (r) {
-      case BioResult.lockedOut:
-        return 'Fingerprint is temporarily locked. Try again shortly or use your password.';
-      case BioResult.permanentlyLockedOut:
-        return 'Fingerprint is locked. Unlock your phone with its PIN, then try again.';
-      case BioResult.notEnrolled:
-        return 'No fingerprint is enrolled on this phone. Add one in your phone Settings first.';
-      case BioResult.notAvailable:
-        return 'Fingerprint is not available on this device.';
-      default:
-        return 'Fingerprint authentication failed or was cancelled.';
+      return false;
     }
   }
 }
@@ -1104,15 +1056,10 @@ class _PinDialogState extends State<_PinDialog> {
   }
 
   Future<void> _bio() async {
-    final r = await BiometricHelper.authenticateDetailed(
+    final ok = await BiometricHelper.authenticate(
       reason: 'Confirm with your fingerprint',
     );
-    if (!mounted) return;
-    if (r == BioResult.success) {
-      Navigator.pop(context, true);
-    } else if (r != BioResult.cancelled) {
-      setState(() => error = tr(BiometricHelper.messageFor(r)));
-    }
+    if (ok && mounted) Navigator.pop(context, true);
   }
 
   @override
@@ -1180,17 +1127,11 @@ Future<bool> verifyExistingPin(BuildContext context) async {
 Future<bool> authorizeTransaction(BuildContext context) async {
   if (pinEnabled.value) return requestPin(context);
   if (biometricEnabled.value) {
-    final r = await BiometricHelper.authenticateDetailed(
+    final ok = await BiometricHelper.authenticate(
       reason: 'Confirm this payment with your fingerprint',
     );
-    final ok = r == BioResult.success;
     if (!ok && context.mounted) {
-      showMessage(
-        context,
-        r == BioResult.cancelled || r == BioResult.error
-            ? 'Fingerprint was not confirmed. Payment cancelled.'
-            : BiometricHelper.messageFor(r),
-      );
+      showMessage(context, 'Fingerprint was not confirmed. Payment cancelled.');
     }
     return ok;
   }
@@ -1555,7 +1496,7 @@ class _LeafPainter extends CustomPainter {
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
-/// ALSUDAN logo: uses assets/images/shazalogo.jpg and falls back to the painted mark if
+/// ALSUDAN logo: uses assets/shazalogo.jpg and falls back to the painted mark if
 /// the file is missing.
 class FuLogo extends StatelessWidget {
   final double size;
@@ -1788,9 +1729,9 @@ class NetworkLogo extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // Brand-coloured mark. To use real logos, add image assets and swap this
-    // widget's child for Image.asset(...) with this as the errorBuilder.
-    return Container(
+    // Brand-coloured mark, shown until an official logo file is added at
+    // assets/networks/network_<name>.png (see networkLogoAsset).
+    final mark = Container(
       width: size,
       height: size,
       alignment: Alignment.center,
@@ -1805,6 +1746,15 @@ class NetworkLogo extends StatelessWidget {
             fontSize: size * 0.3,
           ),
         ),
+      ),
+    );
+    return ClipOval(
+      child: Image.asset(
+        networkLogoAsset(network),
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        errorBuilder: (_, __, ___) => mark,
       ),
     );
   }
@@ -1937,8 +1887,6 @@ class _AlsudanAppState extends State<AlsudanApp> with WidgetsBindingObserver {
   bool registerUser(UserProfileData u) {
     final name = u.username.toLowerCase();
     if (registered.contains(name)) return false;
-    // The list above lives in memory only, so also check the saved account.
-    if (AccountStore.profile?.username.toLowerCase() == name) return false;
     registered.add(name);
     return true;
   }
@@ -2057,7 +2005,20 @@ class SplashPage extends StatefulWidget {
 }
 
 class _SplashPageState extends State<SplashPage> {
-  // The splash now stays on screen until the user taps "Next".
+  Timer? _t;
+
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer(const Duration(milliseconds: 2200), widget.onDone);
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -2115,31 +2076,6 @@ class _SplashPageState extends State<SplashPage> {
                           ),
                         ),
                     ],
-                  ),
-                  const SizedBox(height: 18),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 40),
-                    child: SizedBox(
-                      width: double.infinity,
-                      height: 50,
-                      child: ElevatedButton(
-                        onPressed: widget.onDone,
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.white,
-                          foregroundColor: fuDark,
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(30),
-                          ),
-                        ),
-                        child: const TrText(
-                          'Next',
-                          style: TextStyle(
-                            fontWeight: FontWeight.w900,
-                            fontSize: 16,
-                          ),
-                        ),
-                      ),
-                    ),
                   ),
                   const SizedBox(height: 14),
                   TrText(
@@ -2417,18 +2353,6 @@ class _LoginPageState extends State<LoginPage> {
   bool obscure = true;
 
   @override
-  void initState() {
-    super.initState();
-    // Like modern banking apps: if fingerprint login is on, the fingerprint
-    // prompt opens by itself as soon as the login screen appears.
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted && biometricEnabled.value && AccountStore.exists) {
-        _bio(auto: true);
-      }
-    });
-  }
-
-  @override
   void dispose() {
     idCtrl.dispose();
     pwCtrl.dispose();
@@ -2455,22 +2379,31 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
-  Future<void> _bio({bool auto = false}) async {
+  Future<void> _bio() async {
     final p = AccountStore.profile;
     if (p == null) {
-      if (!auto) {
-        showMessage(context, 'No account found on this device. Please register first.');
-      }
+      showMessage(context, 'No account found on this device. Please register first.');
       return;
     }
-    final r = await BiometricHelper.authenticateDetailed(
+    final st = await BiometricHelper.status();
+    if (!mounted) return;
+    if (st == BioStatus.noHardware || st == BioStatus.error) {
+      showMessage(context, 'Fingerprint is not available on this device.');
+      return;
+    }
+    if (st == BioStatus.notEnrolled) {
+      showMessage(context,
+          'No fingerprint is enrolled on this phone. Add one in your phone Settings first.');
+      return;
+    }
+    final ok = await BiometricHelper.authenticate(
       reason: 'Log in to ALSUDAN with your fingerprint',
     );
     if (!mounted) return;
-    if (r == BioResult.success) {
+    if (ok) {
       widget.onLogin(p);
-    } else if (!(auto && r == BioResult.cancelled)) {
-      showMessage(context, BiometricHelper.messageFor(r));
+    } else {
+      showMessage(context, 'Fingerprint authentication failed or was cancelled.');
     }
   }
 
@@ -2853,7 +2786,7 @@ class _Svc {
   _Svc(this.icon, this.title, this.color, this.onTap, {this.label});
 }
 
-/// Every service in the app. Home shows the layout from the
+/// Every service in the app (nothing removed). Home shows the layout from the
 /// reference image; "View All" and "Bills" show the rest.
 List<_Svc> buildServices(BuildContext context) {
   return <_Svc>[
@@ -2864,22 +2797,38 @@ List<_Svc> buildServices(BuildContext context) {
       Icons.bolt,
       'Electricity',
       const Color(0xFFF59E0B),
-      () => openPage(context, const ElectricityPage()),
+      () => openPage(
+        context,
+        const BillPage(
+          title: 'Electricity',
+          icon: Icons.bolt,
+          idLabel: 'Meter Number',
+          providers: ['AEDC', 'EKEDC', 'IKEDC', 'KEDCO', 'JED'],
+        ),
+      ),
     ),
     _Svc(
-      Icons.tv,
+      Icons.live_tv,
       'Cable TV',
       fuBlue,
-      () => openPage(context, const CableTVPage()),
-      label: 'DStv / GOtv / StarTimes / SLTV',
+      () => openPage(context, const CableTvProvidersPage()),
     ),
     _Svc(Icons.account_balance_wallet, 'Wallet Deposit', fuGreen,
         () => openPage(context, const WalletPage())),
+    _Svc(Icons.receipt_long, 'Bills', fuBlue,
+        () => openPage(context, const BillsPage())),
     _Svc(
       Icons.school,
       'Education',
       fuBlue,
-      () => openPage(context, const EducationServicesPage()),
+      () => openPage(
+        context,
+        const BillPage(
+          title: 'Education',
+          icon: Icons.school,
+          idLabel: 'Registration / Exam Number',
+        ),
+      ),
     ),
     _Svc(Icons.chat_bubble_outline, 'Bulk SMS', fuAccent,
         () => openPage(context, const BulkSmsPage())),
@@ -2892,14 +2841,25 @@ List<_Svc> buildServices(BuildContext context) {
     _Svc(Icons.local_shipping, 'Delivery', fuGreen,
         () => openPage(context, const DeliveryPage())),
     _Svc(
-      Icons.phone_iphone,
-      'Phone Sales',
-      fuGreen,
-      () => openPage(context, const PhoneSalesPage()),
-      label: 'Phones & Prices',
+      Icons.solar_power,
+      'Inverter',
+      fuText,
+      () => openPage(
+        context,
+        const BillPage(
+          title: 'Inverter',
+          icon: Icons.solar_power,
+          idLabel: 'Phone Number',
+          packages: {
+            'Inverter Consultation': 1000,
+            'Installation Request': 1000,
+            'Maintenance Request': 1000,
+            'Solar/Inverter Quote': 1000,
+          },
+          packageLabel: 'Service (demo fee)',
+        ),
+      ),
     ),
-    _Svc(Icons.badge_outlined, 'NIMC Services', fuBlue,
-        () => openPage(context, const NIMCServicesPage())),
     _Svc(Icons.headset_mic, 'Support', fuGreen,
         () => openPage(context, const SupportPage())),
     _Svc(Icons.history, 'History', fuGreen,
@@ -2967,47 +2927,46 @@ class _BannerData {
   final IconData icon;
   final List<Color> colors;
   final bool art;
-  final String? asset;
+  final String? image;
   const _BannerData(this.title, this.subtitle, this.icon, this.colors,
-      {this.art = false, this.asset});
+      {this.art = false, this.image});
 }
 
 const List<_BannerData> _banners = [
   _BannerData(
-    'Welcome to ALSUDAN',
+    'ALSUDAN',
     kTagline,
     Icons.eco_rounded,
     [Color(0xFF0F5B45), Color(0xFF2E8B57)],
     art: true,
-    asset: 'assets/images/ad_welcome.png',
   ),
   _BannerData(
     'Buy Airtime and Data',
     'MTN, Airtel, Glo, T2mobile (9mobile) and Smile',
     Icons.phone_android_rounded,
     [Color(0xFF1B7F5B), Color(0xFF3FB27F)],
-    asset: 'assets/images/ad_airtime.png',
+    image: kAdAirtimeAsset,
   ),
   _BannerData(
     'Pay Electricity and TV Bills',
-    'Electricity providers • DStv, GOtv, StarTimes, SLTV',
+    'AEDC, EKEDC, IKEDC, KEDCO, JED  •  DSTV, GOtv, Startimes',
     Icons.bolt_rounded,
     [Color(0xFF0F5B45), Color(0xFF4C9F70)],
-    asset: 'assets/images/ad_tv_electricity.png',
+    image: kAdUtilityAsset,
   ),
   _BannerData(
     'Wallet and Secure Transactions',
     'Wallet, transaction history, PIN and fingerprint security',
     Icons.lock_rounded,
     [Color(0xFF0B4A38), Color(0xFF2E8B57)],
-    asset: 'assets/images/ad_wallet.png',
+    image: kAdWalletAsset,
   ),
   _BannerData(
     'Digital Services and Offers',
-    'Bulk SMS, ePIN, Education and phone sales services. Replaceable ad slot: assets/images/ad_services.png',
+    'Bulk SMS, ePIN, Education and Inverter requests. Offers show here when available.',
     Icons.auto_awesome_rounded,
     [Color(0xFF2E8B57), Color(0xFF86C79E)],
-    asset: 'assets/images/ad_services.png',
+    image: kAdDigitalAsset,
   ),
 ];
 
@@ -3101,21 +3060,32 @@ class _DashboardCarouselState extends State<DashboardCarousel>
                     ),
                   ),
                 ),
-              if (b.asset != null)
+              if (b.image != null)
                 Positioned.fill(
-                  child: Opacity(
-                    opacity: 0.22,
-                    child: Image.asset(
-                      b.asset!, fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+                  child: Image.asset(
+                    b.image!,
+                    fit: BoxFit.cover,
+                    alignment: Alignment.centerRight,
+                    // If the picture is missing, show the original icon mark.
+                    errorBuilder: (_, __, ___) => Align(
+                      alignment: Alignment.bottomRight,
+                      child: Transform.translate(
+                        offset: const Offset(16, 16),
+                        child: Icon(
+                          b.icon,
+                          size: 120,
+                          color: Colors.white.withOpacity(0.16),
+                        ),
+                      ),
                     ),
                   ),
+                )
+              else
+                Positioned(
+                  right: -16,
+                  bottom: -16,
+                  child: Icon(b.icon, size: 120, color: Colors.white.withOpacity(0.16)),
                 ),
-              Positioned(
-                right: -16,
-                bottom: -16,
-                child: Icon(b.icon, size: 120, color: Colors.white.withOpacity(0.16)),
-              ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(18, 14, 18, 14),
                 child: Column(
@@ -3223,7 +3193,7 @@ class HomePage extends StatelessWidget {
         openPage(context, const AirtimePage());
         break;
       case 2:
-        openPage(context, const CableTVPage());
+        openPage(context, const BillsPage());
         break;
       case 3:
         openPage(context, const WalletPage());
@@ -3319,9 +3289,8 @@ class HomePage extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             _row([s('Data'), s('Electricity'), s('Cable TV')]),
-            _row([s('Wallet Deposit'), s('Bulk SMS'), s('ePIN')]),
+            _row([s('Wallet Deposit'), s('Bills'), s('Bulk SMS'), s('ePIN')]),
             _row([s('Contacts'), s('Data Card'), s('Delivery')]),
-            _row([s('NIMC Services'), s('Education'), s('Phone Sales')]),
           ],
         ),
       ),
@@ -3329,7 +3298,7 @@ class HomePage extends StatelessWidget {
   }
 }
 
-/// "View All": every service in the app (Airtime, Education, Phone Sales,
+/// "View All": every service in the app (Airtime, Education, Inverter,
 /// Support, History and the rest).
 class AllServicesPage extends StatelessWidget {
   const AllServicesPage({super.key});
@@ -3362,7 +3331,7 @@ class BillsPage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final all = buildServices(context);
-    const wanted = ['Airtime', 'Electricity', 'Phone Sales'];
+    const wanted = ['Airtime', 'Electricity', 'Cable TV', 'Education', 'Inverter'];
     final items = [for (final t in wanted) all.firstWhere((e) => e.title == t)];
     return SimpleServicePage(
       title: 'Bills',
@@ -3380,626 +3349,24 @@ class BillsPage extends StatelessWidget {
   }
 }
 
-
-// ===========================================================================
-// CABLE TV PROVIDERS (package prices are not hardcoded as live prices)
-// ===========================================================================
-const List<_PowerProvider> kCableProviders = [
-  _PowerProvider('dstv', 'DStv', 'Satellite TV subscription'),
-  _PowerProvider('gotv', 'GOtv', 'Digital TV subscription'),
-  _PowerProvider('startimes', 'StarTimes', 'Digital TV subscription'),
-  _PowerProvider('sltv', 'SLTV', 'Silver Lake Television subscription'),
-];
-
-class CableTVPage extends StatelessWidget {
-  const CableTVPage({super.key});
-  @override
-  Widget build(BuildContext context) => SimpleServicePage(
-    title: 'Cable TV', icon: Icons.tv,
-    children: [
-      const InfoBanner('TV vending is in demo mode until an authorized provider API is connected. Confirm current packages and prices with the provider.'),
-      for (final p in kCableProviders)
-        Container(
-          margin: const EdgeInsets.only(bottom: 10), decoration: cardDeco(),
-          child: ListTile(
-            leading: ProviderLogo(id: p.id, name: p.name, size: 48),
-            title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(p.subtitle), trailing: const Icon(Icons.chevron_right),
-            onTap: () => openPage(context, BillPage(
-              title: 'Cable TV', icon: Icons.tv,
-              idLabel: 'Smartcard / IUC Number', providers: [p.name],
-              packageLabel: 'Subscription Package',
-            )),
-          ),
-        ),
-    ],
-  );
-}
-
-// ===========================================================================
-// EDUCATION SERVICES (demo flow until an authorized vending API is connected)
-// ===========================================================================
-class EducationServicesPage extends StatelessWidget {
-  const EducationServicesPage({super.key});
-
-  static const List<Map<String, Object>> services = [
-    {'name': 'WAEC Result Checker', 'icon': Icons.school, 'hint': 'WAEC examination number'},
-    {'name': 'NECO Result Checker', 'icon': Icons.school_outlined, 'hint': 'NECO examination number'},
-    {'name': 'JAMB ePIN / UTME', 'icon': Icons.assignment, 'hint': 'JAMB profile code / registration number'},
-    {'name': 'NABTEB Result Checker', 'icon': Icons.menu_book, 'hint': 'NABTEB candidate number'},
-    {'name': 'WAEC Registration', 'icon': Icons.app_registration, 'hint': 'Candidate details'},
-    {'name': 'JAMB Admission Services', 'icon': Icons.fact_check, 'hint': 'JAMB registration number'},
-  ];
-
-  @override
-  Widget build(BuildContext context) => SimpleServicePage(
-    title: 'Education', icon: Icons.school,
-    children: [
-      const InfoBanner('Choose an education service. Payment and PIN vending remain in demo mode until an authorized provider API is connected. Confirm the current fee before paying.'),
-      for (final item in services)
-        Container(
-          margin: const EdgeInsets.only(bottom: 10),
-          decoration: cardDeco(),
-          child: ListTile(
-            leading: CircleAvatar(backgroundColor: fuLight, child: Icon(item['icon'] as IconData, color: fuDark)),
-            title: Text(item['name'] as String, style: const TextStyle(fontWeight: FontWeight.bold)),
-            subtitle: Text(item['hint'] as String),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: () => openPage(context, BillPage(
-              title: item['name'] as String,
-              icon: item['icon'] as IconData,
-              idLabel: item['hint'] as String,
-              packageLabel: 'Education service',
-            )),
-          ),
-        ),
-    ],
-  );
-}
-
-// ===========================================================================
-// PHONE SALES CATALOG — indicative Nigerian retail prices, not live quotes.
-// Tap a model to see its details and start a purchase request.
-// ===========================================================================
-class _PhoneItem {
-  final String brand, model, specs;
-  final int price;
-  const _PhoneItem(this.brand, this.model, this.price, this.specs);
-}
-
-const List<_PhoneItem> kAlsudanPhones = [
-  _PhoneItem('Samsung', 'Galaxy S23 Ultra', 1250000, '12GB RAM • 256GB • 200MP camera'),
-  _PhoneItem('Samsung', 'Galaxy S23+', 850000, '8GB RAM • 256GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy S23', 700000, '8GB RAM • 128GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy S24 Ultra', 1750000, '12GB RAM • 256GB • S Pen'),
-  _PhoneItem('Samsung', 'Galaxy S24+', 1150000, '12GB RAM • 256GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy S24', 900000, '8GB RAM • 256GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy S25 Ultra', 2200000, '12GB RAM • 256GB • S Pen'),
-  _PhoneItem('Samsung', 'Galaxy S25+', 1500000, '12GB RAM • 256GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy S25', 1200000, '12GB RAM • 256GB • AMOLED display'),
-  _PhoneItem('Samsung', 'Galaxy A55 5G', 550000, '8GB RAM • 128GB • 5G'),
-  _PhoneItem('Samsung', 'Galaxy A56 5G', 700000, '8GB RAM • 256GB • 5G'),
-  _PhoneItem('Samsung', 'Galaxy A35 5G', 430000, '8GB RAM • 128GB • 5G'),
-  _PhoneItem('Samsung', 'Galaxy A25 5G', 350000, '6GB RAM • 128GB • 5G'),
-  _PhoneItem('Samsung', 'Galaxy A15', 250000, '4GB RAM • 128GB'),
-  _PhoneItem('Samsung', 'Galaxy A05s', 180000, '4GB RAM • 128GB'),
-  _PhoneItem('Apple', 'iPhone XR', 250000, '64GB • Face ID • used/refurbished varies'),
-  _PhoneItem('Apple', 'iPhone 11', 320000, '64GB • Face ID • used/refurbished varies'),
-  _PhoneItem('Apple', 'iPhone 12', 420000, '128GB • OLED • 5G'),
-  _PhoneItem('Apple', 'iPhone 12 Pro', 550000, '128GB • Triple camera • 5G'),
-  _PhoneItem('Apple', 'iPhone 13', 600000, '128GB • OLED • 5G'),
-  _PhoneItem('Apple', 'iPhone 13 Pro', 780000, '128GB • ProMotion display'),
-  _PhoneItem('Apple', 'iPhone 14', 750000, '128GB • Crash Detection'),
-  _PhoneItem('Apple', 'iPhone 14 Pro', 950000, '128GB • Dynamic Island'),
-  _PhoneItem('Apple', 'iPhone 15', 1000000, '128GB • USB-C • Dynamic Island'),
-  _PhoneItem('Apple', 'iPhone 15 Pro', 1350000, '128GB • Titanium • USB-C'),
-  _PhoneItem('Apple', 'iPhone 15 Pro Max', 1550000, '256GB • Titanium • 5x zoom'),
-  _PhoneItem('Apple', 'iPhone 16', 1200000, '128GB • USB-C • Apple Intelligence support varies'),
-  _PhoneItem('Apple', 'iPhone 16 Pro', 1650000, '128GB • Pro camera system'),
-  _PhoneItem('Apple', 'iPhone 16 Pro Max', 1900000, '256GB • Large display'),
-  _PhoneItem('Apple', 'iPhone 17', 1500000, '128GB • Price depends on storage and condition'),
-  _PhoneItem('Apple', 'iPhone 17 Pro', 2100000, '256GB • Price depends on storage and condition'),
-  _PhoneItem('Apple', 'iPhone 17 Pro Max', 2450000, '256GB • Price depends on storage and condition'),
-  _PhoneItem('Apple', 'iPhone 18 Pro Max', 3000000, 'Model listing placeholder; confirm official availability and specifications'),
-  _PhoneItem('Tecno', 'Camon 30', 330000, '8GB RAM • 256GB'),
-  _PhoneItem('Tecno', 'Camon 30 Pro 5G', 520000, '12GB RAM • 512GB • 5G'),
-  _PhoneItem('Tecno', 'Camon 40', 400000, '8GB RAM • 256GB'),
-  _PhoneItem('Tecno', 'Spark 20', 180000, '8GB RAM • 256GB'),
-  _PhoneItem('Tecno', 'Spark 30', 220000, '8GB RAM • 256GB'),
-  _PhoneItem('Infinix', 'Note 40', 280000, '8GB RAM • 256GB'),
-  _PhoneItem('Infinix', 'Note 40 Pro', 380000, '8GB RAM • 256GB'),
-  _PhoneItem('Infinix', 'Note 50 Pro', 450000, '12GB RAM • 256GB'),
-  _PhoneItem('Infinix', 'Hot 40i', 160000, '8GB RAM • 128GB'),
-  _PhoneItem('Infinix', 'Hot 50 Pro+', 300000, '8GB RAM • 256GB'),
-  _PhoneItem('Xiaomi', 'Redmi Note 13', 250000, '8GB RAM • 256GB'),
-  _PhoneItem('Xiaomi', 'Redmi Note 13 Pro', 380000, '8GB RAM • 256GB'),
-  _PhoneItem('Xiaomi', 'Redmi Note 14', 300000, '8GB RAM • 256GB'),
-  _PhoneItem('Xiaomi', 'Redmi 13C', 150000, '4GB RAM • 128GB'),
-  _PhoneItem('itel', 'S25 Ultra', 220000, '8GB RAM • 256GB'),
-  _PhoneItem('itel', 'A70', 120000, '4GB RAM • 128GB'),
-  _PhoneItem('OPPO', 'A60', 280000, '8GB RAM • 256GB'),
-  _PhoneItem('Vivo', 'Y28', 260000, '8GB RAM • 256GB'),
-];
-
-class PhoneSalesPage extends StatefulWidget {
-  const PhoneSalesPage({super.key});
-  @override
-  State<PhoneSalesPage> createState() => _PhoneSalesPageState();
-}
-
-class _PhoneSalesPageState extends State<PhoneSalesPage> {
-  final searchCtrl = TextEditingController();
-  String brand = 'All';
-
-  @override
-  void dispose() { searchCtrl.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    final brands = ['All', ...kAlsudanPhones.map((p) => p.brand).toSet()];
-    final q = searchCtrl.text.toLowerCase().trim();
-    final filtered = kAlsudanPhones.where((p) =>
-      (brand == 'All' || p.brand == brand) &&
-      ('${p.brand} ${p.model} ${p.specs}'.toLowerCase().contains(q))).toList();
-    return SimpleServicePage(
-      title: 'Phone Sales', icon: Icons.phone_iphone,
-      children: [
-        const InfoBanner('Prices are indicative estimates in Nigerian Naira (₦), not live store prices. Price varies by storage, new/used condition, warranty, seller and market. Some unreleased or unconfirmed models are marked as placeholders; confirm availability before payment.'),
-        TextField(
-          controller: searchCtrl,
-          decoration: InputDecoration(labelText: 'Search phone or model', prefixIcon: const Icon(Icons.search), border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))),
-          onChanged: (_) => setState(() {}),
-        ),
-        const SizedBox(height: 10),
-        DropdownButtonFormField<String>(
-          value: brand,
-          decoration: InputDecoration(labelText: 'Phone brand', border: OutlineInputBorder(borderRadius: BorderRadius.circular(14))),
-          items: brands.map((b) => DropdownMenuItem(value: b, child: Text(b))).toList(),
-          onChanged: (v) => setState(() => brand = v ?? 'All'),
-        ),
-        const SizedBox(height: 12),
-        Text('${filtered.length} phone models', style: const TextStyle(fontWeight: FontWeight.bold, color: fuMuted)),
-        for (final phone in filtered)
-          Container(
-            margin: const EdgeInsets.only(top: 9), decoration: cardDeco(),
-            child: ListTile(
-              leading: CircleAvatar(backgroundColor: fuLight, child: Icon(phone.brand == 'Apple' ? Icons.phone_iphone : Icons.phone_android, color: fuDark)),
-              title: Text('${phone.brand} ${phone.model}', style: const TextStyle(fontWeight: FontWeight.bold)),
-              subtitle: Text('${phone.specs}\n${naira(phone.price)} (estimate)'),
-              isThreeLine: true,
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => showModalBottomSheet<void>(
-                context: context, isScrollControlled: true,
-                builder: (sheetContext) => SafeArea(child: Padding(
-                  padding: const EdgeInsets.all(20),
-                  child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Text('${phone.brand} ${phone.model}', style: const TextStyle(fontSize: 21, fontWeight: FontWeight.w900)),
-                    const SizedBox(height: 10),
-                    Text('Estimated price: ${naira(phone.price)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: fuDark)),
-                    const SizedBox(height: 8), Text('Details: ${phone.specs}'),
-                    const SizedBox(height: 8), const Text('Please confirm storage, colour, warranty, condition and final price with ALSUDAN before paying.'),
-                    const SizedBox(height: 16),
-                    SizedBox(width: double.infinity, child: ElevatedButton.icon(
-                      onPressed: () { Navigator.pop(sheetContext); openPage(context, BillPage(title: 'Phone Purchase Request', icon: Icons.phone_iphone, idLabel: 'Customer phone number', packages: {'${phone.brand} ${phone.model} — estimate ${naira(phone.price)}': phone.price.toDouble()}, packageLabel: 'Selected phone')); },
-                      icon: const Icon(Icons.shopping_cart_outlined), label: const Text('Continue purchase request'),
-                    )),
-                  ]),
-                )),
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-// ===========================================================================
-// OFFICIAL NIMC / NIN / NATIONAL ID CARD LINKS + AGENT LOOKUP FORM
-// ===========================================================================
-class NIMCServicesPage extends StatelessWidget {
-  const NIMCServicesPage({super.key});
-
-  Future<void> _open(BuildContext context, String url) async {
-    final uri = Uri.parse(url);
-    try {
-      final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
-      if (!opened && context.mounted) showMessage(context, 'Could not open the official website.');
-    } catch (_) {
-      if (context.mounted) showMessage(context, 'Could not open the official website. Check url_launcher setup.');
-    }
-  }
-
-  Widget _link(BuildContext context, String title, String subtitle, IconData icon, String url) =>
-    Container(
-      margin: const EdgeInsets.only(bottom: 10), decoration: cardDeco(),
-      child: ListTile(
-        leading: CircleAvatar(backgroundColor: fuLight, child: Icon(icon, color: fuDark)),
-        title: Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: Text(subtitle), trailing: const Icon(Icons.open_in_new),
-        onTap: () => _open(context, url),
-      ),
-    );
-
-  @override
-  Widget build(BuildContext context) => SimpleServicePage(
-    title: 'NIMC Services', icon: Icons.badge_outlined,
-    children: [
-      const SectionLabel('NIMC Agent Services'),
-      const InfoBanner('Enter a NIN or BVN to prepare an agent lookup. This app currently checks number format only; it does NOT retrieve identity records or verify a person until an authorized agent API is connected. Handle customer identity data confidentially and only with consent.'),
-      const _AgentIdentityLookup(),
-      const SizedBox(height: 12),
-      const SectionLabel('Official NIMC Portals'),
-      const InfoBanner('Use official NIMC websites only. ALSUDAN does not verify NIN or card status itself. Never share your OTP or portal password inside this app.'),
-      Container(
-        margin: const EdgeInsets.only(bottom: 14), padding: const EdgeInsets.all(14),
-        decoration: cardDeco(),
-        child: Row(children: [
-          const ProviderLogo(id: 'nimc', name: 'NIMC', size: 58),
-          const SizedBox(width: 12),
-          const Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('NIMC / National Identity', style: TextStyle(fontWeight: FontWeight.w900, fontSize: 16)),
-            SizedBox(height: 4), Text('Official identity services and National ID card portal'),
-          ])),
-        ]),
-      ),
-      _link(context, 'NIMC Official Website', 'Official National Identity Management Commission website', Icons.account_balance, 'https://nimc.gov.ng/'),
-      _link(context, 'NINAuth / NIN Services', 'Use the official portal for supported NIN services', Icons.verified_user, 'https://ninauth.nimc.gov.ng/'),
-      _link(context, 'National ID Card Request / Tracking', 'Open the official National ID card portal', Icons.credit_card, 'https://www.pubecardrequest.nimc.gov.ng/'),
-      _link(context, 'NIN Slip', 'Follow the official portal process to obtain an eligible NIN slip', Icons.download, 'https://ninauth.nimc.gov.ng/'),
-    ],
-  );
-}
-
-class _AgentIdentityLookup extends StatefulWidget {
-  const _AgentIdentityLookup();
-  @override
-  State<_AgentIdentityLookup> createState() => _AgentIdentityLookupState();
-}
-
-class _AgentIdentityLookupState extends State<_AgentIdentityLookup> {
-  final numberCtrl = TextEditingController();
-  String kind = 'NIN';
-  String result = '';
-
-  @override
-  void dispose() { numberCtrl.dispose(); super.dispose(); }
-
-  void lookup() {
-    final value = numberCtrl.text.trim();
-    if (!RegExp(r'^\d{11}$').hasMatch(value)) {
-      setState(() => result = '$kind must contain exactly 11 digits.');
-      return;
-    }
-    setState(() => result = '$kind format is valid (11 digits), but no live lookup was performed. Connect an authorized NIMC/NIN or BVN verification provider on a secure backend to retrieve a real result.');
-  }
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(14), decoration: cardDeco(),
-    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      const Text('Agent Number Search', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900)),
-      const SizedBox(height: 10),
-      DropdownButtonFormField<String>(
-        value: kind,
-        decoration: const InputDecoration(labelText: 'Search type', border: OutlineInputBorder()),
-        items: const [DropdownMenuItem(value: 'NIN', child: Text('NIN / NIMC Number')), DropdownMenuItem(value: 'BVN', child: Text('BVN Number'))],
-        onChanged: (v) => setState(() { kind = v ?? 'NIN'; result = ''; }),
-      ),
-      const SizedBox(height: 10),
-      TextField(
-        controller: numberCtrl, keyboardType: TextInputType.number,
-        inputFormatters: [FilteringTextInputFormatter.digitsOnly, LengthLimitingTextInputFormatter(11)],
-        decoration: InputDecoration(labelText: '$kind (11 digits)', hintText: 'Enter number', border: const OutlineInputBorder()),
-      ),
-      const SizedBox(height: 10),
-      SizedBox(width: double.infinity, child: ElevatedButton.icon(onPressed: lookup, icon: const Icon(Icons.search), label: const Text('Check number'))),
-      if (result.isNotEmpty) ...[
-        const SizedBox(height: 10),
-        Text(result, style: const TextStyle(color: fuDark, fontWeight: FontWeight.w600)),
-      ],
-    ]),
-  );
-}
-
-// ===========================================================================
-// ELECTRICITY + SOLAR PROVIDERS
-// ===========================================================================
-// Put each company's logo in assets/providers/<id>.png (see the ids below).
-// While a logo file is missing, a clean initials badge is shown instead, so
-// the app never crashes and never shows a wrong logo.
-class _PowerProvider {
-  final String id; // logo file name: assets/providers/<id>.png
-  final String name;
-  final String subtitle;
-  const _PowerProvider(this.id, this.name, this.subtitle);
-}
-
-const List<_PowerProvider> kDiscos = [
-  _PowerProvider('aedc', 'AEDC', 'Abuja Electricity Distribution Company'),
-  _PowerProvider('ikedc', 'IKEDC', 'Ikeja Electric'),
-  _PowerProvider('ekedc', 'EKEDC', 'Eko Electricity Distribution Company'),
-  _PowerProvider('ibedc', 'IBEDC', 'Ibadan Electricity Distribution Company'),
-  _PowerProvider('bedc', 'BEDC', 'Benin Electricity Distribution Company'),
-  _PowerProvider('eedc', 'EEDC', 'Enugu Electricity Distribution Company'),
-  _PowerProvider('jed', 'JED', 'Jos Electricity Distribution'),
-  _PowerProvider('kaedco', 'KAEDCO', 'Kaduna Electricity Distribution Company'),
-  _PowerProvider('kedco', 'KEDCO', 'Kano Electricity Distribution Company'),
-  _PowerProvider('yedc', 'YEDC', 'Yola Electricity Distribution Company'),
-  _PowerProvider('phedc', 'PHEDC', 'Port Harcourt Electricity Distribution Company'),
-];
-
-const List<_PowerProvider> kSolarProviders = [
-  _PowerProvider('sunking', 'Sun King', 'Solar pay-as-you-go'),
-  _PowerProvider('ugoma', 'Ugoma', 'Solar pay-as-you-go'),
-  _PowerProvider('mtnlumos', 'MTN Lumos', 'Solar pay-as-you-go'),
-  _PowerProvider('asolar', 'ASOLAR Nigeria', 'Solar pay-as-you-go'),
-  _PowerProvider('dlight', 'd.light', 'Solar pay-as-you-go'),
-  _PowerProvider('grexgrid', 'GrēxGrid', 'Solar pay-as-you-go'),
-  _PowerProvider('paygops', 'PaygOps', 'Solar pay-as-you-go'),
-  _PowerProvider('angaza', 'Angaza', 'Solar pay-as-you-go'),
-];
-
-class ProviderLogo extends StatelessWidget {
-  final String id;
-  final String name;
-  final double size;
-  const ProviderLogo({
-    super.key,
-    required this.id,
-    required this.name,
-    this.size = 46,
-  });
-
-  Widget _badge() {
-    final letters = name.replaceAll(RegExp(r'[^A-Za-z]'), '').toUpperCase();
-    final text = letters.isEmpty
-        ? '?'
-        : letters.substring(0, letters.length < 2 ? letters.length : 2);
-    return Container(
-      width: size,
-      height: size,
-      alignment: Alignment.center,
-      decoration: const BoxDecoration(shape: BoxShape.circle, color: fuDark),
-      child: Text(
-        text,
-        style: TextStyle(
-          color: Colors.white,
-          fontWeight: FontWeight.w900,
-          fontSize: size * 0.34,
-        ),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: size,
-      height: size,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        shape: BoxShape.circle,
-        border: Border.all(color: fuBorder),
-      ),
-      child: ClipOval(
-        child: Image.asset(
-          'assets/images/$id.png',
-          width: size,
-          height: size,
-          fit: BoxFit.contain,
-          errorBuilder: (_, __, ___) => Image.asset(
-            'assets/providers/$id.png',
-            width: size,
-            height: size,
-            fit: BoxFit.contain,
-            errorBuilder: (_, __, ___) => _badge(),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class ElectricityPage extends StatelessWidget {
-  const ElectricityPage({super.key});
-
-  Widget _tile(BuildContext context, _PowerProvider p, {required bool solar}) {
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      decoration: cardDeco(),
-      child: ListTile(
-        onTap: () => openPage(
-          context,
-          BillPage(
-            title: solar ? 'Solar Payment' : 'Electricity',
-            icon: solar ? Icons.solar_power : Icons.bolt,
-            idLabel: solar ? 'Customer ID / Device Number' : 'Meter Number',
-            providers: [p.name],
-          ),
-        ),
-        leading: ProviderLogo(id: p.id, name: p.name),
-        title: Text(p.name, style: const TextStyle(fontWeight: FontWeight.bold)),
-        subtitle: TrText(p.subtitle, style: const TextStyle(color: fuMuted)),
-        trailing: const Icon(Icons.chevron_right, color: fuMuted),
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SimpleServicePage(
-      title: 'Electricity',
-      icon: Icons.bolt,
-      children: [
-        const SectionLabel('Electricity Companies'),
-        for (final p in kDiscos) _tile(context, p, solar: false),
-        const SectionLabel('Solar / Pay-As-You-Go'),
-        for (final p in kSolarProviders) _tile(context, p, solar: true),
-      ],
-    );
-  }
-}
-
-// ===========================================================================
-// NIN (NATIONAL ID) CHECK
-// ===========================================================================
-// A NIN can only be truly verified by a licensed identity provider (for
-// example NIMC-approved services such as Dojah, Prembly or YouVerify).
-// Their secret keys must NEVER be inside this app. Put your own backend URL
-// below; the backend holds the provider key, calls the provider, and answers:
-//     POST kNinVerifyUrl   body {"nin": "12345678901"}
-//     reply {"verified": true, "fullName": "..."}
-// While kNinVerifyUrl is empty, the app only checks the FORMAT and says
-// clearly that the NIN was NOT verified.
-const String kNinVerifyUrl = '';
-
-class NinCheckResult {
-  final bool verified;
-  final String message;
-  final String? name;
-  const NinCheckResult(this.verified, this.message, {this.name});
-}
-
-String maskNin(String nin) =>
-    nin.length == 11 ? '${nin.substring(0, 3)}*****${nin.substring(8)}' : nin;
-
-Future<NinCheckResult> checkNin(String raw) async {
-  final nin = raw.trim();
-  if (!RegExp(r'^\d{11}$').hasMatch(nin)) {
-    return const NinCheckResult(false, 'A NIN must be exactly 11 digits.');
-  }
-  if (kNinVerifyUrl.isEmpty) {
-    return const NinCheckResult(
-      false,
-      'The format is correct, but NIN verification is not connected yet, so this NIN was NOT verified.',
-    );
-  }
-  if (!kNinVerifyUrl.startsWith('https://')) {
-    return const NinCheckResult(false, 'Verification address must use https.');
-  }
-  final client = HttpClient()..connectionTimeout = const Duration(seconds: 15);
-  try {
-    final req = await client.postUrl(Uri.parse(kNinVerifyUrl));
-    req.headers.set('Content-Type', 'application/json');
-    req.headers.set('Accept', 'application/json');
-    req.add(utf8.encode(jsonEncode({'nin': nin})));
-    final res = await req.close().timeout(const Duration(seconds: 25));
-    final body = await res.transform(utf8.decoder).join();
-    if (res.statusCode < 200 || res.statusCode >= 300) {
-      return const NinCheckResult(false, 'The verification service could not check this NIN. Try again later.');
-    }
-    final data = jsonDecode(body);
-    if (data is Map && data['verified'] == true) {
-      final n = data['fullName']?.toString();
-      return NinCheckResult(true, 'NIN verified.', name: (n == null || n.isEmpty) ? null : n);
-    }
-    return const NinCheckResult(false, 'This NIN could not be verified.');
-  } on TimeoutException {
-    return const NinCheckResult(false, 'The verification service took too long. Try again.');
-  } catch (_) {
-    return const NinCheckResult(false, 'Could not reach the verification service. Check your internet.');
-  } finally {
-    client.close(force: true);
-  }
-}
-
-/// Delivery form. Fees are illustrative until a real delivery provider is connected.
-class DeliveryPage extends StatefulWidget {
+/// Delivery (demo fee, goes through the same PIN + receipt flow).
+class DeliveryPage extends StatelessWidget {
   const DeliveryPage({super.key});
 
   @override
-  State<DeliveryPage> createState() => _DeliveryPageState();
-}
-
-class _DeliveryPageState extends State<DeliveryPage> {
-  final itemCtrl = TextEditingController();
-  final quantityCtrl = TextEditingController(text: '1');
-  final senderCtrl = TextEditingController();
-  final senderPhoneCtrl = TextEditingController();
-  final pickupCtrl = TextEditingController();
-  final receiverCtrl = TextEditingController();
-  final receiverPhoneCtrl = TextEditingController();
-  final addressCtrl = TextEditingController();
-  final cityCtrl = TextEditingController();
-  final stateCtrl = TextEditingController();
-  final feeCtrl = TextEditingController(text: '1500');
-  bool busy = false;
-
-  @override
-  void dispose() {
-    for (final c in [itemCtrl, quantityCtrl, senderCtrl, senderPhoneCtrl,
-      pickupCtrl, receiverCtrl, receiverPhoneCtrl, addressCtrl, cityCtrl,
-      stateCtrl, feeCtrl]) { c.dispose(); }
-    super.dispose();
+  Widget build(BuildContext context) {
+    return const BillPage(
+      title: 'Delivery',
+      icon: Icons.local_shipping,
+      idLabel: 'Delivery Address / Phone',
+      packages: {
+        'Small Package': 1500,
+        'Medium Package': 2500,
+        'Large Package': 4000,
+      },
+      packageLabel: 'Package size (demo fee)',
+    );
   }
-
-  Widget _field(TextEditingController c, String label, {TextInputType type = TextInputType.text, int maxLines = 1}) => Padding(
-    padding: const EdgeInsets.only(bottom: 12),
-    child: TextField(controller: c, keyboardType: type, maxLines: maxLines,
-      decoration: InputDecoration(labelText: label, border: const OutlineInputBorder(), prefixIcon: const Icon(Icons.edit_note))),
-  );
-
-  Future<void> submit() async {
-    if (busy) return;
-    final qty = int.tryParse(quantityCtrl.text.trim());
-    final fee = double.tryParse(feeCtrl.text.trim());
-    if ([itemCtrl, senderCtrl, senderPhoneCtrl, pickupCtrl, receiverCtrl,
-      receiverPhoneCtrl, addressCtrl, cityCtrl, stateCtrl].any((c) => c.text.trim().isEmpty) || qty == null || qty < 1 || fee == null || fee <= 0) {
-      showMessage(context, 'Complete all delivery fields with valid quantity and fee.');
-      return;
-    }
-    setState(() => busy = true);
-    final ref = newReference();
-    final ok = await runTransaction(context, TxRequest(
-      title: 'Delivery Order', amount: fee, reference: ref,
-      note: 'Item: ${itemCtrl.text.trim()} • Receiver: ${receiverCtrl.text.trim()}',
-      lines: [
-        MapEntry('Order Reference', ref),
-        MapEntry('Product / Item', itemCtrl.text.trim()),
-        MapEntry('Quantity', '$qty'),
-        MapEntry('Sender Name', senderCtrl.text.trim()),
-        MapEntry('Sender Phone', senderPhoneCtrl.text.trim()),
-        MapEntry('Pickup Address', pickupCtrl.text.trim()),
-        MapEntry('Receiver Name', receiverCtrl.text.trim()),
-        MapEntry('Receiver Phone', receiverPhoneCtrl.text.trim()),
-        MapEntry('Delivery Address', addressCtrl.text.trim()),
-        MapEntry('City', cityCtrl.text.trim()),
-        MapEntry('State', stateCtrl.text.trim()),
-        MapEntry('Delivery Fee', naira(fee)),
-        const MapEntry('Delivery Status', 'Request submitted; awaiting provider confirmation'),
-      ],
-    ));
-    if (!mounted) return;
-    setState(() => busy = false);
-    if (ok) {
-      for (final c in [itemCtrl, senderCtrl, senderPhoneCtrl, pickupCtrl,
-        receiverCtrl, receiverPhoneCtrl, addressCtrl, cityCtrl, stateCtrl]) { c.clear(); }
-      quantityCtrl.text = '1';
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => SimpleServicePage(
-    title: 'Delivery', icon: Icons.local_shipping,
-    children: [
-      const InfoBanner('Delivery fee is illustrative. A real courier API is required for live delivery booking and tracking.'),
-      const SectionLabel('Item Details'),
-      _field(itemCtrl, 'Product / Item Name'),
-      _field(quantityCtrl, 'Quantity', type: TextInputType.number),
-      const SectionLabel('Sender Details'),
-      _field(senderCtrl, 'Sender Full Name'),
-      _field(senderPhoneCtrl, 'Sender Phone Number', type: TextInputType.phone),
-      _field(pickupCtrl, 'Pickup Address', maxLines: 2),
-      const SectionLabel('Receiver Details'),
-      _field(receiverCtrl, 'Receiver Full Name'),
-      _field(receiverPhoneCtrl, 'Receiver Phone Number', type: TextInputType.phone),
-      _field(addressCtrl, 'Delivery Address', maxLines: 2),
-      _field(cityCtrl, 'City'),
-      _field(stateCtrl, 'State'),
-      _field(feeCtrl, 'Delivery Fee (NGN)', type: const TextInputType.numberWithOptions(decimal: true)),
-      PrimaryButton(text: 'Submit Delivery Order', onPressed: submit, loading: busy),
-    ],
-  );
 }
 
 class DataCardPage extends StatelessWidget {
@@ -4657,7 +4024,104 @@ class _EpinPageState extends State<EpinPage> {
 }
 
 // ===========================================================================
-// GENERIC BILL PAGE (Electricity, Cable TV, Education, Delivery,
+// CABLE TV PROVIDER SELECTOR
+// ===========================================================================
+class CableTvProvidersPage extends StatelessWidget {
+  const CableTvProvidersPage({super.key});
+
+  static const List<_CableProvider> _providers = [
+    _CableProvider('DStv', 'assets/networks/cable_dstv.png'),
+    _CableProvider('Startimes', 'assets/networks/cable_startimes.png'),
+    _CableProvider('GOtv', 'assets/networks/cable_gotv.png'),
+    _CableProvider('SLTV', 'assets/networks/cable_sltv.png'),
+  ];
+
+  void _openProvider(BuildContext context, String provider) {
+    openPage(
+      context,
+      BillPage(
+        title: 'Cable TV',
+        icon: Icons.live_tv,
+        idLabel: 'Smartcard / IUC Number',
+        providers: const ['DStv', 'Startimes', 'GOtv', 'SLTV'],
+        initialProvider: provider,
+        packages: const {'Compact': 10000, 'Family': 6000, 'Basic': 3500},
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SimpleServicePage(
+      title: 'Cable TV',
+      icon: Icons.live_tv,
+      children: [
+        const Text(
+          'Choose your TV provider',
+          style: TextStyle(fontSize: 16, fontWeight: FontWeight.w800, color: fuDark),
+        ),
+        const SizedBox(height: 14),
+        GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          crossAxisSpacing: 12,
+          mainAxisSpacing: 12,
+          childAspectRatio: 1.08,
+          children: [
+            for (final item in _providers)
+              InkWell(
+                onTap: () => _openProvider(context, item.name),
+                borderRadius: BorderRadius.circular(16),
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: cardDeco(16),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Expanded(
+                        child: Image.asset(
+                          item.asset,
+                          fit: BoxFit.contain,
+                          errorBuilder: (_, __, ___) => Container(
+                            width: 76,
+                            height: 76,
+                            alignment: Alignment.center,
+                            decoration: BoxDecoration(
+                              color: fuBlue.withOpacity(0.12),
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: const Icon(Icons.live_tv, size: 42, color: fuBlue),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 8),
+                      Text(item.name,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.w900,
+                            color: fuText,
+                          )),
+                    ],
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _CableProvider {
+  final String name;
+  final String asset;
+  const _CableProvider(this.name, this.asset);
+}
+
+// ===========================================================================
+// GENERIC BILL PAGE (Electricity, Cable TV, Education, Inverter, Delivery,
 // Data Card)
 // ===========================================================================
 class BillPage extends StatefulWidget {
@@ -4667,6 +4131,7 @@ class BillPage extends StatefulWidget {
   final List<String>? providers;
   final Map<String, double>? packages;
   final String packageLabel;
+  final String? initialProvider;
 
   const BillPage({
     super.key,
@@ -4676,6 +4141,7 @@ class BillPage extends StatefulWidget {
     this.providers,
     this.packages,
     this.packageLabel = 'Package',
+    this.initialProvider,
   });
 
   @override
@@ -4685,23 +4151,20 @@ class BillPage extends StatefulWidget {
 class _BillPageState extends State<BillPage> {
   final idCtrl = TextEditingController();
   final amountCtrl = TextEditingController();
-  final customPackageCtrl = TextEditingController();
   String? provider;
   String? package;
-  String meterType = 'Prepaid';
   bool busy = false;
 
   @override
   void initState() {
     super.initState();
-    provider = widget.providers?.first;
+    provider = widget.initialProvider ?? widget.providers?.first;
   }
 
   @override
   void dispose() {
     idCtrl.dispose();
     amountCtrl.dispose();
-    customPackageCtrl.dispose();
     super.dispose();
   }
 
@@ -4710,10 +4173,6 @@ class _BillPageState extends State<BillPage> {
     final id = idCtrl.text.trim();
     if (id.isEmpty) {
       showMessage(context, 'Enter ${widget.idLabel}.');
-      return;
-    }
-    if (widget.title == 'Cable TV' && customPackageCtrl.text.trim().isEmpty) {
-      showMessage(context, 'Enter the subscription package name.');
       return;
     }
     double? amount;
@@ -4737,13 +4196,11 @@ class _BillPageState extends State<BillPage> {
         title: widget.title,
         amount: amount,
         reference: newReference(),
-        note: '${widget.idLabel}: $id${provider != null ? ' • $provider' : ''}${package != null ? ' • $package' : ''}${customPackageCtrl.text.trim().isNotEmpty ? ' • ${customPackageCtrl.text.trim()}' : ''}${widget.title == 'Electricity' ? ' • $meterType' : ''}',
+        note: '${widget.idLabel}: $id${provider != null ? ' • $provider' : ''}${package != null ? ' • $package' : ''}',
         lines: [
           MapEntry(widget.idLabel, id),
           if (provider != null) MapEntry('Provider', provider!),
           if (package != null) MapEntry(widget.packageLabel, package!),
-          if (customPackageCtrl.text.trim().isNotEmpty) MapEntry(widget.packageLabel, customPackageCtrl.text.trim()),
-          if (widget.title == 'Electricity') MapEntry('Meter Type', meterType),
           MapEntry('Amount', naira(amount)),
         ],
       ),
@@ -4753,17 +4210,32 @@ class _BillPageState extends State<BillPage> {
     if (ok) {
       idCtrl.clear();
       amountCtrl.clear();
-      customPackageCtrl.clear();
     }
   }
 
   @override
   Widget build(BuildContext context) {
     final pk = widget.packages;
+    final header = kServiceHeaderAssets[widget.title];
     return SimpleServicePage(
       title: widget.title,
       icon: widget.icon,
       children: [
+        if (header != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Image.asset(
+                header,
+                height: 130,
+                width: double.infinity,
+                fit: BoxFit.cover,
+                // If the picture is missing, simply show nothing.
+                errorBuilder: (_, __, ___) => const SizedBox.shrink(),
+              ),
+            ),
+          ),
         if (!vtuProvider.isLive)
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
@@ -4792,25 +4264,6 @@ class _BillPageState extends State<BillPage> {
             prefixIcon: const Icon(Icons.badge_outlined),
           ),
         ),
-        if (widget.title == 'Cable TV') ...[
-          const SizedBox(height: 12),
-          TextField(
-            controller: customPackageCtrl,
-            decoration: const InputDecoration(
-              labelText: 'Subscription Package Name',
-              hintText: 'Enter the package shown by your TV provider',
-              prefixIcon: Icon(Icons.live_tv),
-            ),
-          ),
-        ],
-        if (widget.title == 'Electricity') ...[
-          const SizedBox(height: 12),
-          const SectionLabel('Meter Type'),
-          Wrap(spacing: 8, children: [
-            ChoiceChip(label: const Text('Prepaid'), selected: meterType == 'Prepaid', onSelected: (_) => setState(() => meterType = 'Prepaid')),
-            ChoiceChip(label: const Text('Postpaid'), selected: meterType == 'Postpaid', onSelected: (_) => setState(() => meterType = 'Postpaid')),
-          ]),
-        ],
         const SizedBox(height: 14),
         if (pk != null)
           for (final e in pk.entries)
@@ -5113,36 +4566,12 @@ class ContactNumberPage extends StatefulWidget {
 class _ContactNumberPageState extends State<ContactNumberPage> {
   final number = TextEditingController();
   final name = TextEditingController();
-  final ninCtrl = TextEditingController();
-  bool ninBusy = false;
-  NinCheckResult? ninResult;
-  String ninShown = '';
 
   @override
   void dispose() {
     number.dispose();
     name.dispose();
-    ninCtrl.dispose();
     super.dispose();
-  }
-
-  Future<void> runNinCheck() async {
-    if (ninBusy) return;
-    FocusScope.of(context).unfocus();
-    final nin = ninCtrl.text.trim();
-    setState(() {
-      ninBusy = true;
-      ninResult = null;
-    });
-    final r = await checkNin(nin);
-    if (!mounted) return;
-    setState(() {
-      ninBusy = false;
-      ninResult = r;
-      ninShown = maskNin(nin);
-    });
-    // The NIN is private: it is never saved, only shown masked.
-    ninCtrl.clear();
   }
 
   void save() {
@@ -5251,46 +4680,6 @@ class _ContactNumberPageState extends State<ContactNumberPage> {
                   ],
                 ),
         ),
-        const SectionLabel('National ID (NIN) Check'),
-        TextField(
-          controller: ninCtrl,
-          keyboardType: TextInputType.number,
-          maxLength: 11,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          decoration: InputDecoration(
-            labelText: tr('NIN (11 digits)'),
-            prefixIcon: const Icon(Icons.badge_outlined),
-            counterText: '',
-          ),
-        ),
-        const SizedBox(height: 12),
-        PrimaryButton(text: 'Check NIN', onPressed: runNinCheck, loading: ninBusy),
-        if (ninResult != null) ...[
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: ninResult!.verified ? fuLight : const Color(0xFFFFF4E0),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: ninResult!.verified ? fuAccent : const Color(0xFFF59E0B),
-              ),
-            ),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(ninShown, style: const TextStyle(fontWeight: FontWeight.w900)),
-                const SizedBox(height: 4),
-                TrText(ninResult!.message),
-                if (ninResult!.name != null) ...[
-                  const SizedBox(height: 4),
-                  Text(ninResult!.name!, style: const TextStyle(fontWeight: FontWeight.bold)),
-                ],
-              ],
-            ),
-          ),
-        ],
       ],
     );
   }
@@ -5396,7 +4785,16 @@ class HistoryPage extends StatelessWidget {
         valueListenable: transactionsNotifier,
         builder: (_, txns, __) {
           if (txns.isEmpty) {
-            return const Center(child: TrText('No transactions yet.'));
+            return Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: const [
+                  Icon(Icons.receipt_long_outlined, size: 48, color: fuMuted),
+                  SizedBox(height: 8),
+                  TrText('No transactions yet.', style: TextStyle(color: fuMuted)),
+                ],
+              ),
+            );
           }
           return ListView.builder(
             padding: const EdgeInsets.all(16),
@@ -5918,17 +5316,23 @@ class SettingsPage extends StatelessWidget {
 
   Future<void> _toggleBio(BuildContext context, bool want) async {
     if (want) {
-      final r = await BiometricHelper.authenticateDetailed(
+      final st = await BiometricHelper.status();
+      if (!context.mounted) return;
+      if (st == BioStatus.notEnrolled) {
+        showMessage(context,
+            'No fingerprint is enrolled on this phone. Add one in your phone Settings first.');
+        return;
+      }
+      if (st != BioStatus.ok) {
+        showMessage(context, 'Fingerprint is not available on this device.');
+        return;
+      }
+      final ok = await BiometricHelper.authenticate(
         reason: 'Confirm your fingerprint to turn this on',
       );
       if (!context.mounted) return;
-      if (r != BioResult.success) {
-        showMessage(
-          context,
-          r == BioResult.cancelled
-              ? 'Fingerprint was not confirmed. Setting unchanged.'
-              : BiometricHelper.messageFor(r),
-        );
+      if (!ok) {
+        showMessage(context, 'Fingerprint was not confirmed. Setting unchanged.');
         return;
       }
       biometricEnabled.value = true;
